@@ -1,10 +1,13 @@
-// A new signed PDF revision must never inherit stamps from its source revision.
+import { INKS } from "./ink.js";
+
+// A new PDF revision must never inherit stamps from its source revision.
 const key = (doc) => `inkdesk-draft:${doc.id}:${doc.revision ?? 0}`;
 
-export function readDraft(doc, storage = localStorage) {
+export function readDraftState(doc, storage = localStorage) {
   const raw = storage.getItem(key(doc));
-  if (!raw) return [];
-  const marks = JSON.parse(raw);
+  if (!raw) return { marks: [], color: Object.values(INKS).includes(doc.inkColor) ? doc.inkColor : INKS.Blue };
+  const saved = JSON.parse(raw);
+  const marks = Array.isArray(saved) ? saved : saved?.marks;
   if (!Array.isArray(marks) || !marks.every((mark) =>
     mark && Number.isInteger(mark.id) && mark.id > 0 &&
     Number.isInteger(mark.page) && mark.page >= 1 && mark.page <= doc.pages &&
@@ -15,12 +18,22 @@ export function readDraft(doc, storage = localStorage) {
   ) || new Set(marks.map((mark) => mark.id)).size !== marks.length) {
     throw new Error("Invalid signature draft");
   }
-  return marks;
+  const color = Array.isArray(saved) ? marks[0]?.color : saved.color;
+  return { marks, color: Object.values(INKS).includes(color) ? color : INKS.Blue };
 }
 
+export function readDraft(doc, storage = localStorage) {
+  return readDraftState(doc, storage).marks;
+}
+
+export function writeDraftState(doc, { marks, color }, storage = localStorage) {
+  storage.setItem(key(doc), JSON.stringify({ version: 2, marks, color }));
+}
+
+// Retained for callers that only store marks.
 export function writeDraft(doc, marks, storage = localStorage) {
   if (!marks.length) return clearDraft(doc, storage);
-  storage.setItem(key(doc), JSON.stringify(marks));
+  writeDraftState(doc, { marks, color: marks[0]?.color || INKS.Blue }, storage);
 }
 
 export function clearDraft(doc, storage = localStorage) {
