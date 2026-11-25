@@ -27,6 +27,7 @@ import "./style.css";
 import { getDocuments, saveDocument, saveSignedDocument } from "./db";
 import { downloadPDF } from "./download";
 import Editor from "./Editor";
+import InstallApp from "./InstallApp";
 import SignatureModal, { Dialog } from "./Signature";
 
 function Artwork() {
@@ -338,6 +339,7 @@ function App() {
             {editor && <span className="editor-nav">Document editor</span>}
           </div>
           <div className="header-end">
+            <InstallApp />
             <span className="privacy">
               <i />
               Local workspace
@@ -600,3 +602,10 @@ function App() {
   );
 }
 createRoot(document.getElementById("root")).render(<App />);
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch((error) => {
+      console.warn("Offline support is unavailable", error);
+    });
+  });
+}
