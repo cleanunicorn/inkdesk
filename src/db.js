@@ -168,6 +168,7 @@ export function signedDocument(current, base, signed, conflict = current && (cur
         ? base.name.replace(/(?:\.pdf)?$/i, " (separate copy).pdf")
         : base.name,
       file: base.file,
+      ...(base.inkColor ? { inkColor: base.inkColor } : {}),
       pages: base.pages,
       revision: conflict ? 1 : (base.revision ?? 0) + 1,
       updated: Date.now(),

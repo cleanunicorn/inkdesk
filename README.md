@@ -62,3 +62,54 @@ Static-only hosting supports guest workspaces.
 Browser verification covers 320px and 390px layouts and offline PDF opening,
 signature creation, and placement. Physical iOS/Android installation and their
 native file-saving interfaces still require device testing.
+
+## Signatures and text
+
+Draw once and place your signature. Path smoothing, pen-pressure treatment, and
+subtle changes in slant, stroke weight, and proportions happen automatically.
+**Manage signatures** lets you keep up to five handwriting or typed samples.
+Placements choose a sample automatically, avoiding immediate repeats when there
+is more than one. Each placement saves its chosen appearance; reopening, moving,
+resizing, or exporting it never generates a different signature. Existing saved
+PNG signatures remain usable.
+
+**Document ink** chooses blue or black for every signature and text item added
+in the editor, across all pages. Changing it updates all current placements.
+The choice persists in the draft and carries over when reopening an exported
+copy. Existing content already embedded in the source PDF is unchanged.
+
+Use **Add date / location** for dates, locations, or other short text, including
+multiple lines. Handwritten lettering is the default; printed text is available.
+Text uses the document ink automatically and can be edited separately.
+
+Drag a signature or text item to move it, or drag any of its four corners to
+resize it. Resizing preserves its proportions and keeps the opposite corner
+fixed within the page. Arrow keys move a focused item or resize a focused handle;
+the size slider is also available. Signatures and text persist in local drafts
+and are included in the exported PDF.
+
+## Certificate-based digital signing
+
+Enable **Sign with a certificate**, choose an RSA `.p12` / `.pfx` signing identity,
+and enter its password (leave it blank for an unprotected bundle). The export
+button becomes **Digitally sign PDF**. This works with or without a visible
+handwritten signature. The final PDF receives a detached CMS/SHA-256 signature,
+covering all document bytes except the signature contents. Incremental saving
+preserves earlier PDF revisions and existing form fields.
+
+Certificates must be currently valid, permit signing when key usage is specified,
+and contain exactly one matching RSA identity of at least 2048 bits. Bundles are
+limited to 2 MB. The certificate and password are held in memory only; private-key
+operations run in a dedicated worker that is terminated after each attempt.
+Certificate files and passwords stay on the device. Claimed accounts sync the
+resulting signed PDF. Readers determine certificate trust from the issuer; Inkdesk
+does not add a trusted timestamp, check revocation, or provide a qualified-signing
+service. Smart cards, ECDSA identities, and signing pre-existing locked/certified
+fields require a different signing application. Certified or field-restricted
+PDFs are rejected by this digital-signing flow.
+
+The implementation uses [Forge](https://github.com/digitalbazaar/forge) for PKCS#12
+and CMS, and `@cantoo/pdf-lib` for incremental PDF updates. The automated signing
+tests require **OpenSSL** and independently verify signatures, detect tampering,
+and verify consecutive signed revisions. Production browser testing uses a
+throwaway test certificate, never a personal signing key.

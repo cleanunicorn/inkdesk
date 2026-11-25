@@ -10,12 +10,20 @@ import {
   Trash2,
   MousePointer2,
   LoaderCircle,
+  Type,
 } from "lucide-react";
 import { downloadPDF } from "./download";
-import { Dialog } from "./Signature";
-import { readDraft, writeDraft, clearDraft } from "./drafts";
+import { Dialog, InkColors } from "./Signature";
+import { readDraftState, writeDraftState, clearDraft } from "./drafts";
 import { guestStorage, writeGuestStorage } from "./account";
-const clamp = (x, a, b) => Math.min(Math.max(x, a), Math.max(a, b));
+import TextMark from "./TextMark";
+import InkImage from "./InkImage";
+import DigitalSigningOptions from "./DigitalSigningOptions";
+import { INKS, colorDocument } from "./ink";
+import { signaturePlacement } from "./signature-placement";
+import { signatureSamples } from "./signature-samples";
+import { boundMark, resizeMark } from "./placement";
+const corners = { nw: "top left", ne: "top right", sw: "bottom left", se: "bottom right" };
 export default function Editor({
   doc,
   pdf,
@@ -31,11 +39,19 @@ export default function Editor({
   const draftQueue = useRef(Promise.resolve());
   const [draft] = useState(() => {
     try {
-      return { marks: accountWorkspace ? accountWorkspace.readDraft(doc, draftHandle.current) : readDraft(doc, guestStorage(guest)), error: "" };
+      const state = accountWorkspace
+        ? accountWorkspace.readDraftState(doc, draftHandle.current)
+        : readDraftState(doc, guestStorage(guest));
+      return { ...state, error: "" };
     } catch {
-      return { marks: [], error: "Your saved draft could not be read. New edits may replace it. Download your signed PDF before leaving." };
+      return { marks: [], color: INKS.Blue, error: "Your saved draft could not be read. New edits may replace it. Download your signed PDF before leaving." };
     }
   });
+  const [ink, setInk] = useState(draft.color);
+  const inkRef = useRef(draft.color);
+  const [adding, setAdding] = useState(false);
+  const addingRef = useRef(false);
+  const [digital, setDigital] = useState({ enabled: false, file: null, password: "" });
   const [draftError, setDraftError] = useState(draft.error);
   const [page, setPage] = useState(draft.marks[0]?.page ?? 1),
     [size, setSize] = useState(null),
@@ -45,15 +61,20 @@ export default function Editor({
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const [leave, setLeave] = useState(false);
+  const [textDialog, setTextDialog] = useState(null);
+  const [pendingText, setPendingText] = useState(null);
   const canvas = useRef(),
     sheet = useRef(),
     drag = useRef(null),
     latest = useRef(Math.max(0, ...draft.marks.map((mark) => mark.id)));
   const marksRef = useRef(draft.marks);
-  function persistMarks(marks) {
+  function persistDraft(state) {
     const pending = draftQueue.current.catch(() => {}).then(() => accountWorkspace
-      ? accountWorkspace.writeDraft(doc, marks, draftHandle.current)
-      : writeGuestStorage(guest, (storage) => writeDraft(doc, marks, storage)));
+      ? accountWorkspace.writeDraftState(doc, state, draftHandle.current)
+      : writeGuestStorage(guest, (storage) => {
+        if (state) writeDraftState(doc, state, storage);
+        else clearDraft(doc, storage);
+      }));
     draftQueue.current = pending;
     pending.then(() => setDraftError(""), () => {
       setDraftError("Your draft could not be saved. Download your signed PDF before leaving or reloading.");
@@ -64,13 +85,13 @@ export default function Editor({
     const next = typeof change === "function" ? change(marksRef.current) : change;
     marksRef.current = next;
     updateMarks(next);
-    if (persist) persistMarks(next);
+    if (persist) persistDraft({ marks: next, color: inkRef.current });
   }
-  function finishDrag() {
-    if (!drag.current) return;
+  function finishDrag(event) {
+    if (!drag.current || (event && drag.current.pointerId !== event.pointerId)) return;
     const { moved } = drag.current;
     drag.current = null;
-    if (moved) persistMarks(marksRef.current);
+    if (moved) persistDraft({ marks: marksRef.current, color: inkRef.current });
   }
   async function keepDraft() {
     finishDrag();
@@ -80,6 +101,11 @@ export default function Editor({
     } catch {
       // The editor shows the save failure and retains the placements.
     }
+  }
+  function changeInk(color) {
+    inkRef.current = color;
+    setInk(color);
+    persistDraft({ marks: marksRef.current, color });
   }
   useEffect(() => {
     if (!marks.length) return;
@@ -93,7 +119,7 @@ export default function Editor({
   async function discard() {
     try {
       drag.current = null;
-      await persistMarks([]);
+      await persistDraft(null);
       onClose();
     } catch {
       setLeave(false);
@@ -139,41 +165,46 @@ export default function Editor({
   }, [page, pdf]);
   const current = marks.find((m) => m.id === selected && m.page === page);
   function bounded(m, x, y, w) {
-    const maxW = Math.min(0.9, (0.9 * m.ratio * size.height) / size.width);
-    w = clamp(w, Math.min(0.03, maxW), maxW);
-    return {
-      ...m,
-      w,
-      x: clamp(x, 0, 1 - w),
-      y: clamp(y, 0, 1 - (w * size.width) / size.height / m.ratio),
-    };
+    return boundMark(m, x, y, w, size);
   }
-  function add(sig, x = 0.5, y = 0.5) {
-    if (!sig || !size) return;
-    const w = Math.min(0.28, (0.25 * sig.ratio * size.height) / size.width);
-    const m = bounded(
-      { ...sig, id: ++latest.current, page },
-      x - w / 2,
-      y - (w * size.width) / size.height / sig.ratio / 2,
-      w,
-    );
-    setMarks((prev) => [...prev, m]);
-    select(m.id);
-    setPlacing(false);
+  async function add(sig, x = 0.5, y = 0.5) {
+    if (!sig || !size || addingRef.current) return;
+    addingRef.current = true;
+    setAdding(true);
+    setError("");
+    try {
+      const previous = marksRef.current.filter((m) => m.kind !== "text").at(-1)?.sampleIndex ?? -1;
+      const appearance = sig.kind === "text" ? sig : await signaturePlacement(sig, previous);
+      const w = Math.min(0.28, (0.25 * appearance.ratio * size.height) / size.width);
+      const m = bounded(
+        { ...appearance, id: ++latest.current, page },
+        x - w / 2, y - (w * size.width) / size.height / appearance.ratio / 2, w,
+      );
+      setMarks((prev) => [...prev, m]);
+      select(m.id);
+      setPlacing(false);
+      setPendingText(null);
+    } catch (error) {
+      setError(error.message || "The signature could not be placed. Please try again.");
+    } finally {
+      addingRef.current = false;
+      setAdding(false);
+    }
   }
   function startPlace() {
+    setPendingText(null);
     if (!signature) {
-      editSignature(() => setPlacing(true));
+      editSignature(() => setPlacing("signature"));
       return;
     }
-    setPlacing(!placing);
+    setPlacing(placing === "signature" ? false : "signature");
   }
   function pos(e) {
     const r = sheet.current.getBoundingClientRect();
     return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
   }
   async function finish() {
-    if (!marks.length && doc.signed) {
+    if (!digital.enabled && !marks.length && doc.signed) {
       downloadPDF(doc.signed, doc.name);
       return;
     }
@@ -181,10 +212,16 @@ export default function Editor({
     setError("");
     try {
       const { signedPDF } = await import("./pdf");
-      const result = await signedPDF(source, marks, pdf);
+      let result = marks.length ? await signedPDF(source, await colorDocument(marks, ink), pdf) : source;
+      if (digital.enabled) {
+        if (!digital.file) throw new Error("Choose your signing certificate first.");
+        const { signWithCertificate } = await import("./digital-signing-client");
+        result = await signWithCertificate(result, digital.file, digital.password);
+        setDigital({ enabled: false, file: null, password: "" });
+      }
       downloadPDF(result, doc.name);
       await draftQueue.current.catch(() => {});
-      await onExport(result, draftHandle.current);
+      await onExport(result, { inkColor: ink }, draftHandle.current);
       if (!accountWorkspace) await writeGuestStorage(guest, (storage) => clearDraft(doc, storage));
       onClose();
     } catch (e) {
@@ -198,7 +235,7 @@ export default function Editor({
   return (
     <main className="editor">
       <button
-        disabled={busy}
+        disabled={busy || adding}
         className="text-button back"
         onClick={() => (marks.length ? setLeave(true) : onClose())}
       >
@@ -214,11 +251,11 @@ export default function Editor({
         </div>
         <button
           className="primary"
-          disabled={(!marks.length && !doc.signed) || busy}
+          disabled={busy || adding || (digital.enabled ? !digital.file : (!marks.length && !doc.signed))}
           onClick={finish}
         >
           {busy ? <LoaderCircle className="spin" /> : <Download size={17} />}
-          Download signed PDF
+          {busy ? "Preparing PDF…" : digital.enabled ? "Digitally sign PDF" : "Download signed PDF"}
         </button>
       </div>
       {error && (
@@ -231,17 +268,22 @@ export default function Editor({
           ? "This PDF is only available in this tab. Download it before leaving or reloading."
           : marks.length
             ? "Draft saved on this device. Reopen this document to continue after a reload."
-            : "Signature placements are saved as a draft while you work.")}
+            : "Your signatures and text are saved as a draft while you work.")}
       </p>
-      <div className="editor-grid" inert={busy}>
+      <div className="editor-grid" inert={busy || adding}>
         <aside className="card editor-tools">
+          <div className="document-ink">
+            <h2>Document ink</h2>
+            <InkColors color={ink} onChange={changeInk} />
+            <p className="tool-help">For all signatures and text added here.</p>
+          </div>
           <h2>
             <PenTool size={18} />
             Signature
           </h2>
           <div className="tool-signature">
             {signature ? (
-              <img src={signature.image} alt="Saved signature" />
+              <InkImage image={signature.image} color={ink} alt="Saved signature" />
             ) : (
               <span className="hand">Your signature</span>
             )}
@@ -252,25 +294,33 @@ export default function Editor({
             onClick={startPlace}
           >
             <Plus size={16} />
-            {placing
+            {placing === "signature"
               ? "Cancel placement"
               : signature
                 ? "Place signature"
                 : "Create signature"}
           </button>
+          <button className="secondary full add-text" disabled={!size || busy}
+            onClick={() => { setPlacing(false); setPendingText(null); setTextDialog({}); }}>
+            <Type size={16} />Add date / location
+          </button>
+          {signature && <button className="text-button edit-ink" onClick={() => editSignature()}>
+            <PenTool size={14} />Manage samples ({signatureSamples(signature).length})
+          </button>}
+          {signature && <p className="tool-help">Natural variation is added each time you place a signature.</p>}
           <p className="tool-help">
             {placing
-              ? "Tap the page where you want to sign."
-              : "Place your signature, then drag it into position."}
+              ? "Tap the page to place your writing."
+              : "Drag to move. Drag any corner to resize."}
           </p>
           {current && size && (
             <div className="mark-tools">
-              <label htmlFor="scale">Signature size</label>
+              <label htmlFor="scale">{current.kind === "text" ? "Text size" : "Signature size"}</label>
               <input
                 id="scale"
                 type="range"
-                min=".03"
-                max=".85"
+                min={Math.min(0.03, 0.9 * current.ratio * size.height / size.width)}
+                max={Math.min(0.9, 0.9 * current.ratio * size.height / size.width)}
                 step=".005"
                 value={current.w}
                 onChange={(e) => {
@@ -282,6 +332,9 @@ export default function Editor({
                   );
                 }}
               />
+              {current.kind === "text" && <button className="text-button" onClick={() => setTextDialog(current)}>
+                <Type size={14} />Edit text
+              </button>}
               <button
                 className="text-button"
                 onClick={() => {
@@ -294,6 +347,7 @@ export default function Editor({
               </button>
             </div>
           )}
+          <DigitalSigningOptions value={digital} onChange={setDigital} />
         </aside>
         <section className="viewer">
           <div className="viewer-bar">
@@ -324,9 +378,12 @@ export default function Editor({
           {placing && (
             <div className="place-hint">
               <MousePointer2 size={15} />
-              Click the page to place your signature.
-              <button className="text-button" onClick={() => add(signature)}>
+              {placing === "text" ? "Click the page to place your text." : "Click the page to place your signature."}
+              <button className="text-button" onClick={() => add(placing === "text" ? pendingText : signature)}>
                 Place in center
+              </button>
+              <button className="text-button" onClick={() => { setPlacing(false); setPendingText(null); }}>
+                Cancel
               </button>
             </div>
           )}
@@ -338,7 +395,7 @@ export default function Editor({
                 aspectRatio: size ? size.width / size.height : undefined,
               }}
               onClick={(e) => {
-                if (placing && size) add(signature, ...pos(e));
+                if (placing && size) add(placing === "text" ? pendingText : signature, ...pos(e));
                 else if (e.target === canvas.current) select(null);
               }}
             >
@@ -356,9 +413,10 @@ export default function Editor({
                 marks
                   .filter((m) => m.page === page)
                   .map((m) => (
-                    <button
+                    <div
                       key={m.id}
-                      aria-label="Move signature"
+                      role="group"
+                      aria-label={m.kind === "text" ? "Text placement" : "Signature placement"}
                       className={"mark " + (m.id === selected ? "active" : "")}
                       style={{
                         left: m.x * 100 + "%",
@@ -370,6 +428,7 @@ export default function Editor({
                         select(m.id);
                       }}
                       onKeyDown={(e) => {
+                        const corner = e.target.dataset.corner;
                         const moves = {
                           ArrowLeft: [-0.005, 0],
                           ArrowRight: [0.005, 0],
@@ -382,7 +441,7 @@ export default function Editor({
                           setMarks((prev) =>
                             prev.map((item) =>
                               item.id === m.id
-                                ? bounded(
+                                ? corner ? resizeMark(item, corner, dx, dy, size) : bounded(
                                     item,
                                     item.x + dx,
                                     item.y + dy,
@@ -394,22 +453,25 @@ export default function Editor({
                         }
                       }}
                       onPointerDown={(e) => {
+                        if (e.button !== 0 || drag.current) return;
                         e.stopPropagation();
                         select(m.id);
                         setPlacing(false);
                         const [x, y] = pos(e);
-                        drag.current = { id: m.id, dx: x - m.x, dy: y - m.y };
+                        drag.current = { id: m.id, pointerId: e.pointerId, corner: e.target.dataset.corner,
+                          original: m, x, y, dx: x - m.x, dy: y - m.y };
                         e.currentTarget.setPointerCapture(e.pointerId);
                       }}
                       onPointerMove={(e) => {
                         const d = drag.current;
-                        if (d?.id !== m.id) return;
+                        if (d?.id !== m.id || d.pointerId !== e.pointerId) return;
                         d.moved = true;
                         const [x, y] = pos(e);
                         setMarks((prev) =>
                           prev.map((item) =>
                             item.id === d.id
-                              ? bounded(item, x - d.dx, y - d.dy, item.w)
+                              ? d.corner ? resizeMark(d.original, d.corner, x - d.x, y - d.y, size)
+                                : bounded(item, x - d.dx, y - d.dy, item.w)
                               : item,
                           ),
                           false,
@@ -419,17 +481,35 @@ export default function Editor({
                       onPointerCancel={finishDrag}
                       onLostPointerCapture={finishDrag}
                     >
-                      <img draggable="false" src={m.image} alt="" />
-                    </button>
+                      <button className="mark-move" aria-label={m.kind === "text" ? "Move text" : "Move signature"}>
+                        <InkImage image={m.image} color={ink} />
+                      </button>
+                      {m.id === selected && Object.entries(corners).map(([corner, label]) => (
+                        <button key={corner} className={"resize-handle " + corner} data-corner={corner}
+                          aria-label={"Resize " + (m.kind === "text" ? "text" : "signature") + " from " + label}
+                          title="Drag to resize, or use arrow keys" />
+                      ))}
+                    </div>
                   ))}
             </div>
           </div>
         </section>
       </div>
+      {textDialog && <TextMark close={() => setTextDialog(null)} existing={textDialog.id ? textDialog : null}
+        color={ink} onSave={(text) => {
+          if (textDialog.id) {
+            setMarks((prev) => prev.map((m) => m.id === textDialog.id
+              ? bounded({ ...m, ...text }, m.x, m.y, m.w) : m));
+          } else {
+            setPendingText(text);
+            setPlacing("text");
+          }
+          setTextDialog(null);
+        }} />}
       {leave && (
         <Dialog title="Leave this document?" close={() => setLeave(false)}>
           <p className="modal-copy">
-            Keep your draft to continue later, or discard its signature placements.
+            Keep your draft to continue later, or discard its signatures and text.
           </p>
           <div className="modal-actions">
             <button className="secondary" onClick={discard}>

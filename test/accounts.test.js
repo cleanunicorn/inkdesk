@@ -15,6 +15,7 @@ const document = {
   value: { id: "test-pdf", name: "Test.pdf", pages: 1, revision: 1, file: "cGRm", signed: "c2lnbmVk" },
 };
 const draft = { version: "draft-1", value: [{ id: 1, page: 1 }] };
+const blackInk = "#242526";
 
 async function listen(t, database, maxRecordBytes) {
   const handler = createAccountsApi({ database, secureCookies: true, maxRecordBytes });
@@ -209,15 +210,16 @@ test("stale editor writes recover the original revision without replacing the ne
   try {
     const handle = {};
     const marks = [{ id: 1, page: 1, x: 0.4, y: 0.5, w: 0.2, ratio: 2, image: signature.value.image }];
-    await workspace.writeDraft(original, marks, handle);
-    await workspace.writeDraft(original, [{ ...marks[0], x: 0.6 }], handle);
+    await workspace.writeDraftState(original, { marks, color: blackInk }, handle);
+    await workspace.writeDraftState(original, { marks: [{ ...marks[0], x: 0.6 }], color: blackInk }, handle);
     await workspace.load();
     const docs = workspace.getDocuments();
     assert.equal(docs.length, 2);
     const copy = docs.find(({ id }) => id === handle.copyId);
     assert.equal(copy.revision, 1);
     assert.equal(await copy.signed.text(), await original.signed.text());
-    assert.equal(workspace.readDraft(copy)[0].x, 0.6);
+    assert.equal(workspace.readDraftState(copy).marks[0].x, 0.6);
+    assert.equal(workspace.readDraftState(copy).color, blackInk);
     assert.equal(docs.find(({ id }) => id === original.id).revision, 2);
   } finally {
     globalThis.FileReader = previousReader;

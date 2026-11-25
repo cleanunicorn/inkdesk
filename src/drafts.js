@@ -1,13 +1,20 @@
-// A new signed PDF revision must never inherit stamps from its source revision.
-const draftKey = (doc) => `inkdesk-draft:${doc.id}:${doc.revision ?? 0}`;
+import { INKS } from "./ink.js";
 
-export function readDraft(doc, storage = localStorage) {
-  const raw = storage.getItem(draftKey(doc));
-  if (!raw) return [];
-  return validateDraft(doc, JSON.parse(raw));
+// A new PDF revision must never inherit stamps from its source revision.
+const key = (doc) => `inkdesk-draft:${doc.id}:${doc.revision ?? 0}`;
+
+export function readDraftState(doc, storage = localStorage) {
+  return readStoredDraftState(doc, storage) ?? validateDraftState(doc, null);
 }
 
-export function validateDraft(doc, marks) {
+export function readStoredDraftState(doc, storage = localStorage) {
+  const raw = storage.getItem(key(doc));
+  return raw ? validateDraftState(doc, JSON.parse(raw)) : null;
+}
+
+export function validateDraftState(doc, saved) {
+  if (saved === null) return { marks: [], color: Object.values(INKS).includes(doc.inkColor) ? doc.inkColor : INKS.Blue };
+  const marks = Array.isArray(saved) ? saved : saved?.marks;
   if (!Array.isArray(marks) || !marks.every((mark) =>
     mark && Number.isInteger(mark.id) && mark.id > 0 &&
     Number.isInteger(mark.page) && mark.page >= 1 && mark.page <= doc.pages &&
@@ -18,14 +25,24 @@ export function validateDraft(doc, marks) {
   ) || new Set(marks.map((mark) => mark.id)).size !== marks.length) {
     throw new Error("Invalid signature draft");
   }
-  return marks;
+  const color = Array.isArray(saved) ? marks[0]?.color : saved.color;
+  return { marks, color: Object.values(INKS).includes(color) ? color : INKS.Blue };
 }
 
+export function readDraft(doc, storage = localStorage) {
+  return readDraftState(doc, storage).marks;
+}
+
+export function writeDraftState(doc, { marks, color }, storage = localStorage) {
+  storage.setItem(key(doc), JSON.stringify({ version: 2, marks, color }));
+}
+
+// Retained for callers that only store marks.
 export function writeDraft(doc, marks, storage = localStorage) {
   if (!marks.length) return clearDraft(doc, storage);
-  storage.setItem(draftKey(doc), JSON.stringify(marks));
+  writeDraftState(doc, { marks, color: marks[0]?.color || INKS.Blue }, storage);
 }
 
 export function clearDraft(doc, storage = localStorage) {
-  storage.removeItem(draftKey(doc));
+  storage.removeItem(key(doc));
 }

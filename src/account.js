@@ -1,5 +1,5 @@
 import { changeAccount, claimGuestDocuments, getAccountState, signedDocument, withGuestTarget } from "./db.js";
-import { readDraft, validateDraft } from "./drafts.js";
+import { readStoredDraftState, validateDraftState } from "./drafts.js";
 import { createDocumentId } from "./document-id.js";
 
 export const signatureKey = "inkdesk-signature";
@@ -93,8 +93,8 @@ export async function importGuest(workspace, guest, nextGuest, rotate) {
     const storage = guestStorage(guest);
     const signature = JSON.parse(storage.getItem(signatureKey));
     const drafts = Object.fromEntries(documents.flatMap((doc) => {
-      const marks = readDraft(doc, storage);
-      return marks.length ? [[draftKey(doc), entry(marks)]] : [];
+      const state = readStoredDraftState(doc, storage);
+      return state ? [[draftKey(doc), entry(state)]] : [];
     }));
     return signature ? { ...drafts, signature: entry(signature) } : drafts;
   });
@@ -196,10 +196,10 @@ export class AccountWorkspace {
     return this.cache.records.signature?.value ?? null;
   }
 
-  readDraft(doc, handle) {
+  readDraftState(doc, handle) {
     const record = this.cache.records[draftKey(doc)];
     if (handle) handle.version = record?.version;
-    return validateDraft(doc, record?.value ?? []);
+    return validateDraftState(doc, record?.value ?? null);
   }
 
   apply({ changes, ...state }) {
@@ -257,13 +257,13 @@ export class AccountWorkspace {
     return { ...result, doc: { ...result.doc, accountVersion: saved.version } };
   }
 
-  async writeDraft(doc, marks, handle = {}) {
+  async writeDraftState(doc, draft, handle = {}) {
     if (doc.temporary) return;
     const originalKey = documentKey(doc.id);
     const revision = doc.revision ?? 0;
     let copyId = handle.copyId ?? handle.version ?? createDocumentId();
     let copyKey = documentKey(copyId);
-    const stamp = marks.length ? entry(marks) : null;
+    const stamp = draft ? entry(draft) : null;
     // A stale editor keeps the exact source PDF, including any earlier signatures.
     let source;
     let copied = false;

@@ -54,6 +54,7 @@ test("an in-memory upload can enter the library after storage recovers", async (
     pages: 1,
     file: new Blob(["original"]),
     temporary: true,
+    inkColor: "#242526",
   };
   const { doc } = await firstTab.saveSignedDocument(
     local,
@@ -62,4 +63,5 @@ test("an in-memory upload can enter the library after storage recovers", async (
   assert.equal(doc.id, local.id);
   assert.equal(await doc.signed.text(), "signed");
   assert.equal(doc.temporary, undefined);
+  assert.equal(doc.inkColor, "#242526");
 });

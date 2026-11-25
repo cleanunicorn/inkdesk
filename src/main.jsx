@@ -216,11 +216,12 @@ function App({ accountWorkspace, guest, authenticate, signOut }) {
       setError("The sample could not be opened. Please try again.");
     }
   }
-  async function exportDoc(signed, draftHandle) {
+  async function exportDoc(signed, settings, draftHandle) {
+    const base = { ...editor.doc, inkColor: settings.inkColor };
     try {
       const { doc, concurrentCopy } = await (accountWorkspace
-        ? accountWorkspace.saveSignedDocument(editor.doc, signed, draftHandle)
-        : saveSignedDocument(editor.doc, signed, guest));
+        ? accountWorkspace.saveSignedDocument(base, signed, draftHandle)
+        : saveSignedDocument(base, signed, guest));
       if (concurrentCopy) updateDoc(concurrentCopy);
       updateDoc(doc);
       setToast(
@@ -231,6 +232,7 @@ function App({ accountWorkspace, guest, authenticate, signOut }) {
     } catch {
       updateDoc({
         ...editor.doc,
+        inkColor: settings.inkColor,
         signed,
         updated: Date.now(),
         temporary: true,
@@ -512,7 +514,7 @@ function App({ accountWorkspace, guest, authenticate, signOut }) {
                     </span>
                     <h2>Your signature</h2>
                   </div>
-                  <p className="card-desc">Save it once, use it on any PDF.</p>
+                  <p className="card-desc">Save your handwriting. Every placement gets a natural variation.</p>
                   <div className="sig-preview">
                     <div className="signature-line">
                       <span>×</span>
@@ -539,7 +541,7 @@ function App({ accountWorkspace, guest, authenticate, signOut }) {
                     onClick={() => editSignature()}
                   >
                     {signature ? <PenLine size={16} /> : <Plus size={17} />}{" "}
-                    {signature ? "Edit signature" : "Create signature"}
+                    {signature ? "Manage signatures" : "Create signature"}
                   </button>
                 </section>
               </div>
@@ -606,7 +608,6 @@ function App({ accountWorkspace, guest, authenticate, signOut }) {
           close={() => setSigModal(false)}
           onSave={saveSig}
           existing={signature}
-          account={!!accountWorkspace}
         />
       )}
       {removeDoc && (

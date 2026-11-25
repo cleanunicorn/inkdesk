@@ -958,16 +958,65 @@ nav .nav-active {
   outline: 1.5px dashed var(--purple);
   outline-offset: 2px;
 }
-.mark.active:after {
+.mark-move {
+  min-height: 0;
+  display: block;
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  line-height: 0;
+  cursor: move;
+  touch-action: none;
+}
+.resize-handle {
+  min-height: 0;
+  position: absolute;
+  /* Keep 14px outside each corner, but stop each inward hit area at the
+     mark's midpoint. Opposite targets cannot cover each other's corners. */
+  width: calc(14px + min(14px, 50%));
+  height: calc(14px + min(14px, 50%));
+  padding: 0;
+  background: transparent;
+  touch-action: none;
+  z-index: 1;
+}
+.resize-handle::after {
   content: "";
   position: absolute;
-  bottom: -4px;
-  right: -4px;
-  width: 6px;
-  height: 6px;
-  background: #fff;
-  border: 1px solid var(--purple);
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  pointer-events: none;
+  border: 1.5px solid var(--purple);
+  border-radius: 2px;
+  background: white;
 }
+.resize-handle:hover::after, .resize-handle:focus-visible::after {
+  background: var(--purple);
+}
+.resize-handle.nw { left: -14px; top: -14px; cursor: nwse-resize; }
+.resize-handle.ne { right: -14px; top: -14px; cursor: nesw-resize; }
+.resize-handle.sw { left: -14px; bottom: -14px; cursor: nesw-resize; }
+.resize-handle.se { right: -14px; bottom: -14px; cursor: nwse-resize; }
+.resize-handle.nw::after { left: 9px; top: 9px; }
+.resize-handle.ne::after { right: 9px; top: 9px; }
+.resize-handle.sw::after { left: 9px; bottom: 9px; }
+.resize-handle.se::after { right: 9px; bottom: 9px; }
+.add-text { margin-top: 10px; }
+.edit-ink { margin-top: 12px; font-size: 12px; }
+.ink-colors { display: flex; align-items: center; gap: 8px; margin: 14px 0; font-size: 13px; }
+.ink-colors > span { margin-right: 4px; color: var(--muted); }
+.ink-colors button { display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px;
+  border: 1px solid var(--line); border-radius: 7px; background: white; }
+.ink-colors button.selected { border-color: var(--purple); box-shadow: 0 0 0 1px var(--purple); }
+.ink-swatch { width: 13px; height: 13px; border-radius: 50%; }
+.pad-caption { gap: 12px; flex-wrap: wrap; }
+.pad-caption > span { flex: 1; min-width: 150px; }
+#mark-text { width: 100%; resize: vertical; min-height: 85px; max-height: 200px;
+  border: 1px solid #d1cbd8; border-radius: 7px; padding: 10px 12px; font: inherit; font-size: 16px; }
+.today-button { margin-top: 8px; font-size: 12px; }
+.text-mark-preview { white-space: pre-wrap; max-height: 200px; overflow: auto; }
+.text-mark-preview.printed { font: 24px/1.5 "DM Sans Variable", sans-serif; }
 dialog {
   max-height: calc(100dvh - 32px);
   overflow-y: auto;
@@ -1146,7 +1195,7 @@ dialog::backdrop {
   }
 }
 @media (max-width: 700px) {
-  button:not(.mark) {
+  button:not(.mark):not(.mark-move):not(.resize-handle) {
     min-height: 44px;
   }
   .icon-button, .help-button {
@@ -1398,3 +1447,33 @@ dialog::backdrop {
     display: none;
   }
 }
+
+/* The image supplies only alpha; the document owns its ink color. */
+.ink-image {
+  display: inline-block;
+  line-height: 0;
+  mask-size: 100% 100%;
+  -webkit-mask-size: 100% 100%;
+  mask-repeat: no-repeat;
+  -webkit-mask-repeat: no-repeat;
+  pointer-events: none;
+}
+.ink-image img { opacity: 0; display: block; }
+.mark .ink-image { display: block; width: 100%; }
+.tool-signature .ink-image { max-width: 90%; }
+.tool-signature .ink-image img { max-width: 100%; max-height: 70px; }
+.document-ink { padding-bottom: 18px; margin-bottom: 18px; border-bottom: 1px solid var(--line); }
+.document-ink .ink-colors { margin-bottom: 0; }
+.signature-samples { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.signature-samples > div { border: 1px solid var(--line); border-radius: 8px; padding: 10px;
+  display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; }
+.signature-samples img { max-width: calc(100% - 30px); max-height: 48px; object-fit: contain; }
+.signature-samples button { flex: none; }
+.digital-options { border-top: 1px solid var(--line); margin-top: 20px; padding-top: 16px; }
+.digital-toggle { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-size: 13px; }
+.digital-toggle input { margin: 3px 0 0; accent-color: var(--purple); }
+.digital-toggle span { display: flex; align-items: center; gap: 5px; }
+.digital-toggle svg { flex: none; }
+.certificate-fields { margin-top: 14px; }
+.certificate-fields input { width: 100%; min-width: 0; font-size: 12px; margin-bottom: 12px; }
+.certificate-fields input[type="password"] { border: 1px solid var(--line); border-radius: 7px; padding: 9px; font-size: 16px; }
