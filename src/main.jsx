@@ -27,6 +27,7 @@ import "./style.css";
 import { getDocuments, saveDocument, saveSignedDocument } from "./db";
 import { downloadPDF } from "./download";
 import { pdfOpenErrorMessage } from "./pdf-errors";
+import { createDocumentId } from "./document-id";
 import Editor from "./Editor";
 import InstallApp from "./InstallApp";
 import SignatureModal, { Dialog } from "./Signature";
@@ -164,7 +165,7 @@ function App() {
       const { loadForSigning } = await import("./signing");
       await loadForSigning(file);
       const doc = existing || {
-        id: crypto.randomUUID(),
+        id: createDocumentId(),
         name: file.name,
         file,
         updated: Date.now(),

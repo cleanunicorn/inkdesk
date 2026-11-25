@@ -1,3 +1,5 @@
+import { createDocumentId } from "./document-id.js";
+
 let connection;
 function openDatabase() {
   if (!connection) {
@@ -48,7 +50,7 @@ export function saveSignedDocument(base, signed) {
       const conflict =
         current && (current.revision ?? 0) !== (base.revision ?? 0);
       const doc = {
-        id: conflict ? crypto.randomUUID() : base.id,
+        id: conflict ? createDocumentId() : base.id,
         name: conflict
           ? base.name.replace(/(?:\.pdf)?$/i, " (separate copy).pdf")
           : base.name,
