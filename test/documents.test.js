@@ -4,13 +4,19 @@ import assert from "node:assert/strict";
 import * as firstTab from "../src/db.js";
 import * as secondTab from "../src/db.js?second-tab";
 
-test("racing saves preserve both signed outputs for a pre-revision document", async () => {
+test("racing saves preserve both signed outputs without the secure-context randomUUID API", async (t) => {
   const original = {
     id: crypto.randomUUID(),
     name: "Consent.pdf",
     pages: 1,
     file: new Blob(["original"]),
   };
+  const descriptor = Object.getOwnPropertyDescriptor(crypto, "randomUUID");
+  Object.defineProperty(crypto, "randomUUID", { value: undefined, configurable: true });
+  t.after(() => {
+    if (descriptor) Object.defineProperty(crypto, "randomUUID", descriptor);
+    else delete crypto.randomUUID;
+  });
   await firstTab.saveDocument(original);
   const [a] = await firstTab.getDocuments();
   const [b] = await secondTab.getDocuments();
