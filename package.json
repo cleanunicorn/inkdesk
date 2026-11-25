@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/service-worker.mjs",
     "preview": "vite preview",
     "predev": "node scripts/pdf-assets.mjs",
     "prebuild": "node scripts/pdf-assets.mjs",

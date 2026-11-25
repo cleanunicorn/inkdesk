@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { downloadPDF } from "./download";
 import { Dialog } from "./Signature";
+import { readDraft, writeDraft, clearDraft } from "./drafts";
 const clamp = (x, a, b) => Math.min(Math.max(x, a), Math.max(a, b));
 export default function Editor({
   doc,
@@ -23,9 +24,17 @@ export default function Editor({
   onClose,
   onExport,
 }) {
-  const [page, setPage] = useState(1),
+  const [draft] = useState(() => {
+    try {
+      return { marks: readDraft(doc), error: "" };
+    } catch {
+      return { marks: [], error: "Your saved draft could not be read. New edits may replace it. Download your signed PDF before leaving." };
+    }
+  });
+  const [draftError, setDraftError] = useState(draft.error);
+  const [page, setPage] = useState(draft.marks[0]?.page ?? 1),
     [size, setSize] = useState(null),
-    [marks, setMarks] = useState([]),
+    [marks, updateMarks] = useState(draft.marks),
     [selected, select] = useState(null),
     [placing, setPlacing] = useState(false),
     [busy, setBusy] = useState(false),
@@ -34,7 +43,39 @@ export default function Editor({
   const canvas = useRef(),
     sheet = useRef(),
     drag = useRef(null),
-    latest = useRef(0);
+    latest = useRef(Math.max(0, ...draft.marks.map((mark) => mark.id)));
+  const marksRef = useRef(draft.marks);
+  // Persist synchronously at each edit, rather than waiting for an unload event
+  // (mobile browsers may terminate the app without delivering one).
+  function setMarks(change) {
+    const next = typeof change === "function" ? change(marksRef.current) : change;
+    marksRef.current = next;
+    try {
+      writeDraft(doc, next);
+      setDraftError("");
+    } catch {
+      setDraftError("Your draft could not be saved. Download your signed PDF before leaving or reloading.");
+    }
+    updateMarks(next);
+  }
+  useEffect(() => {
+    if (!marks.length) return;
+    const warn = (event) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [marks.length]);
+  function discard() {
+    try {
+      clearDraft(doc);
+      onClose();
+    } catch {
+      setLeave(false);
+      setDraftError("The draft could not be discarded. Allow site storage and try again.");
+    }
+  }
   useEffect(() => {
     let obsolete = false,
       task;
@@ -119,6 +160,7 @@ export default function Editor({
       const result = await signedPDF(source, marks, pdf);
       downloadPDF(result, doc.name);
       await onExport(result);
+      clearDraft(doc);
       onClose();
     } catch (e) {
       setError(
@@ -159,6 +201,13 @@ export default function Editor({
           {error}
         </div>
       )}
+      <p className="tool-help" role="status">
+        {draftError || (doc.temporary
+          ? "This PDF is only available in this tab. Download it before leaving or reloading."
+          : marks.length
+            ? "Draft saved on this device. Reopen this document to continue after a reload."
+            : "Signature placements are saved as a draft while you work.")}
+      </p>
       <div className="editor-grid" inert={busy}>
         <aside className="card editor-tools">
           <h2>
@@ -186,7 +235,7 @@ export default function Editor({
           </button>
           <p className="tool-help">
             {placing
-              ? "Click the page where you want to sign."
+              ? "Tap the page where you want to sign."
               : "Place your signature, then drag it into position."}
           </p>
           {current && size && (
@@ -352,12 +401,14 @@ export default function Editor({
       {leave && (
         <Dialog title="Leave this document?" close={() => setLeave(false)}>
           <p className="modal-copy">
-            Your current signature placements will be lost. You can download the
-            signed copy before leaving.
+            Keep your draft to continue later, or discard its signature placements.
           </p>
           <div className="modal-actions">
-            <button className="secondary" onClick={onClose}>
+            <button className="secondary" onClick={discard}>
               Discard placements
+            </button>
+            <button className="secondary" disabled={!!draftError || doc.temporary} onClick={onClose}>
+              Keep draft
             </button>
             <button className="primary" onClick={() => setLeave(false)}>
               Keep signing
