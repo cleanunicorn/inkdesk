@@ -26,6 +26,7 @@ import "@fontsource/allura/latin-400.css";
 import "./style.css";
 import { getDocuments, saveDocument, saveSignedDocument } from "./db";
 import { downloadPDF } from "./download";
+import { pdfOpenErrorMessage } from "./pdf-errors";
 import Editor from "./Editor";
 import InstallApp from "./InstallApp";
 import SignatureModal, { Dialog } from "./Signature";
@@ -184,15 +185,7 @@ function App() {
       window.scrollTo(0, 0);
     } catch (e) {
       pdf?.loadingTask.destroy();
-      setError(
-        /password|encrypt/i.test(e.message)
-          ? "This PDF is password-protected. Upload an unlocked copy."
-          : e.name === "CertificationError" || e.message?.startsWith("Choose")
-            ? e.message
-            : e.name === "QuotaExceededError"
-              ? "Your device storage is full. Free up space and try again."
-              : "This PDF could not be opened. Try a valid, undamaged PDF.",
-      );
+      setError(pdfOpenErrorMessage(e));
     } finally {
       lock.current = false;
       setBusy(false);
