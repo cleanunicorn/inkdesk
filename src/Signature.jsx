@@ -70,7 +70,7 @@ function crop(canvas) {
     );
   return { image: out.toDataURL("image/png"), ratio: out.width / out.height };
 }
-export default function SignatureModal({ close, onSave, existing }) {
+export default function SignatureModal({ close, onSave, existing, account }) {
   const [mode, setMode] = useState("draw"),
     [name, setName] = useState(""),
     [drawn, setDrawn] = useState(false),
@@ -119,7 +119,7 @@ export default function SignatureModal({ close, onSave, existing }) {
         ctx.fillStyle = "#29243a";
         ctx.fillText(name.trim(), 60, 145);
       }
-      onSave(crop(c));
+      await onSave(crop(c));
     } catch (e) {
       setError(e.message);
     }
@@ -130,7 +130,7 @@ export default function SignatureModal({ close, onSave, existing }) {
       close={close}
     >
       <p className="modal-copy">
-        Draw or type your signature to save it on this device.
+        {account ? "Draw or type your signature to save it to your account." : "Draw or type your signature to save it on this device."}
       </p>
       <div className="segmented">
         {[

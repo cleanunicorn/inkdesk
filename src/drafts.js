@@ -1,10 +1,13 @@
 // A new signed PDF revision must never inherit stamps from its source revision.
-const key = (doc) => `inkdesk-draft:${doc.id}:${doc.revision ?? 0}`;
+const draftKey = (doc) => `inkdesk-draft:${doc.id}:${doc.revision ?? 0}`;
 
 export function readDraft(doc, storage = localStorage) {
-  const raw = storage.getItem(key(doc));
+  const raw = storage.getItem(draftKey(doc));
   if (!raw) return [];
-  const marks = JSON.parse(raw);
+  return validateDraft(doc, JSON.parse(raw));
+}
+
+export function validateDraft(doc, marks) {
   if (!Array.isArray(marks) || !marks.every((mark) =>
     mark && Number.isInteger(mark.id) && mark.id > 0 &&
     Number.isInteger(mark.page) && mark.page >= 1 && mark.page <= doc.pages &&
@@ -20,9 +23,9 @@ export function readDraft(doc, storage = localStorage) {
 
 export function writeDraft(doc, marks, storage = localStorage) {
   if (!marks.length) return clearDraft(doc, storage);
-  storage.setItem(key(doc), JSON.stringify(marks));
+  storage.setItem(draftKey(doc), JSON.stringify(marks));
 }
 
 export function clearDraft(doc, storage = localStorage) {
-  storage.removeItem(key(doc));
+  storage.removeItem(draftKey(doc));
 }

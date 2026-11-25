@@ -14,6 +14,7 @@ import {
 import { downloadPDF } from "./download";
 import { Dialog } from "./Signature";
 import { readDraft, writeDraft, clearDraft } from "./drafts";
+import { guestStorage, writeGuestStorage } from "./account";
 const clamp = (x, a, b) => Math.min(Math.max(x, a), Math.max(a, b));
 export default function Editor({
   doc,
@@ -23,10 +24,14 @@ export default function Editor({
   editSignature,
   onClose,
   onExport,
+  accountWorkspace,
+  guest,
 }) {
+  const draftHandle = useRef({});
+  const draftQueue = useRef(Promise.resolve());
   const [draft] = useState(() => {
     try {
-      return { marks: readDraft(doc), error: "" };
+      return { marks: accountWorkspace ? accountWorkspace.readDraft(doc, draftHandle.current) : readDraft(doc, guestStorage(guest)), error: "" };
     } catch {
       return { marks: [], error: "Your saved draft could not be read. New edits may replace it. Download your signed PDF before leaving." };
     }
@@ -45,18 +50,36 @@ export default function Editor({
     drag = useRef(null),
     latest = useRef(Math.max(0, ...draft.marks.map((mark) => mark.id)));
   const marksRef = useRef(draft.marks);
-  // Persist synchronously at each edit, rather than waiting for an unload event
-  // (mobile browsers may terminate the app without delivering one).
-  function setMarks(change) {
+  function persistMarks(marks) {
+    const pending = draftQueue.current.catch(() => {}).then(() => accountWorkspace
+      ? accountWorkspace.writeDraft(doc, marks, draftHandle.current)
+      : writeGuestStorage(guest, (storage) => writeDraft(doc, marks, storage)));
+    draftQueue.current = pending;
+    pending.then(() => setDraftError(""), () => {
+      setDraftError("Your draft could not be saved. Download your signed PDF before leaving or reloading.");
+    });
+    return pending;
+  }
+  function setMarks(change, persist = true) {
     const next = typeof change === "function" ? change(marksRef.current) : change;
     marksRef.current = next;
-    try {
-      writeDraft(doc, next);
-      setDraftError("");
-    } catch {
-      setDraftError("Your draft could not be saved. Download your signed PDF before leaving or reloading.");
-    }
     updateMarks(next);
+    if (persist) persistMarks(next);
+  }
+  function finishDrag() {
+    if (!drag.current) return;
+    const { moved } = drag.current;
+    drag.current = null;
+    if (moved) persistMarks(marksRef.current);
+  }
+  async function keepDraft() {
+    finishDrag();
+    try {
+      await draftQueue.current;
+      onClose();
+    } catch {
+      // The editor shows the save failure and retains the placements.
+    }
   }
   useEffect(() => {
     if (!marks.length) return;
@@ -67,9 +90,10 @@ export default function Editor({
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [marks.length]);
-  function discard() {
+  async function discard() {
     try {
-      clearDraft(doc);
+      drag.current = null;
+      await persistMarks([]);
       onClose();
     } catch {
       setLeave(false);
@@ -159,8 +183,9 @@ export default function Editor({
       const { signedPDF } = await import("./pdf");
       const result = await signedPDF(source, marks, pdf);
       downloadPDF(result, doc.name);
-      await onExport(result);
-      clearDraft(doc);
+      await draftQueue.current.catch(() => {});
+      await onExport(result, draftHandle.current);
+      if (!accountWorkspace) await writeGuestStorage(guest, (storage) => clearDraft(doc, storage));
       onClose();
     } catch (e) {
       setError(
@@ -379,6 +404,7 @@ export default function Editor({
                       onPointerMove={(e) => {
                         const d = drag.current;
                         if (d?.id !== m.id) return;
+                        d.moved = true;
                         const [x, y] = pos(e);
                         setMarks((prev) =>
                           prev.map((item) =>
@@ -386,10 +412,12 @@ export default function Editor({
                               ? bounded(item, x - d.dx, y - d.dy, item.w)
                               : item,
                           ),
+                          false,
                         );
                       }}
-                      onPointerUp={() => (drag.current = null)}
-                      onPointerCancel={() => (drag.current = null)}
+                      onPointerUp={finishDrag}
+                      onPointerCancel={finishDrag}
+                      onLostPointerCapture={finishDrag}
                     >
                       <img draggable="false" src={m.image} alt="" />
                     </button>
@@ -407,7 +435,7 @@ export default function Editor({
             <button className="secondary" onClick={discard}>
               Discard placements
             </button>
-            <button className="secondary" disabled={!!draftError || doc.temporary} onClick={onClose}>
+            <button className="secondary" disabled={!!draftError || doc.temporary} onClick={keepDraft}>
               Keep draft
             </button>
             <button className="primary" onClick={() => setLeave(false)}>

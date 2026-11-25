@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "predev": "node scripts/pdf-assets.mjs",
     "prebuild": "node scripts/pdf-assets.mjs",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "start": "node server/start.js"
   },
   "dependencies": {
     "@cantoo/pdf-lib": "2.11.1",
