@@ -30,6 +30,7 @@ import { getDocuments, saveDocument, saveSignedDocument } from "./db";
 import { downloadPDF } from "./download";
 import { pdfOpenErrorMessage } from "./pdf-errors";
 import { createDocumentId } from "./document-id";
+import { importDocuments, documentGroups } from "./bundles";
 import Editor from "./Editor";
 import AccountDialog, { AccountRoot, useAccountSync } from "./Account";
 import { guestStorage, signatureKey, writeGuestStorage } from "./account";
@@ -84,6 +85,7 @@ function App({ accountWorkspace, guest, authenticate, signOut }) {
     [docs, setDocs] = useState([]),
     [loaded, setLoaded] = useState(false),
     [editor, setEditor] = useState(null),
+    [activeBundle, setActiveBundle] = useState(null),
     [busy, setBusy] = useState(false),
     [drag, setDrag] = useState(false),
     [error, setError] = useState(""),
@@ -159,6 +161,11 @@ function App({ accountWorkspace, guest, authenticate, signOut }) {
   function closeEditor() {
     if (editor) editor.pdf.loadingTask.destroy();
     setEditor(null);
+    if (editor?.doc.bundleId) {
+      setActiveBundle(editor.doc.bundleId);
+      setTab("documents");
+      setQuery("");
+    }
     window.scrollTo(0, 0);
   }
   async function open(file, existing) {
@@ -202,6 +209,40 @@ function App({ accountWorkspace, guest, authenticate, signOut }) {
     } catch (e) {
       pdf?.loadingTask.destroy();
       setError(pdfOpenErrorMessage(e));
+    } finally {
+      lock.current = false;
+      setBusy(false);
+      if (fileInput.current) fileInput.current.value = "";
+    }
+  }
+  async function upload(files) {
+    const selected = Array.from(files || []);
+    if (!selected.length || lock.current) return;
+    if (selected.length === 1) {
+      setActiveBundle(null);
+      return open(selected[0]);
+    }
+    lock.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      const { openPDF } = await import("./pdf");
+      const { loadForSigning } = await import("./signing");
+      const { documents, errors } = await importDocuments(selected, {
+        openPDF, validate: loadForSigning,
+        save: (doc) => accountWorkspace ? accountWorkspace.saveDocument(doc) : saveDocument(doc, guest),
+        onDocument: updateDoc,
+      });
+      if (documents.length) {
+        setActiveBundle(documents[0].bundleId);
+        setTab("documents");
+        setQuery("");
+      }
+      const messages = errors.map(({ name, error }) => `${name}: ${pdfOpenErrorMessage(error)}`);
+      if (documents.some((doc) => doc.temporary)) messages.push("Some documents are available in this tab only. Download them before reloading.");
+      setError(messages.join(" "));
+    } catch (error) {
+      setError(pdfOpenErrorMessage(error));
     } finally {
       lock.current = false;
       setBusy(false);
@@ -256,18 +297,27 @@ function App({ accountWorkspace, guest, authenticate, signOut }) {
       setRemoving(false);
     }
   }
-  const sorted = [...docs].sort((a, b) => b.updated - a.updated);
   function docList(all) {
-    const rows = all
-      ? sorted.filter((d) =>
-          d.name.toLowerCase().includes(query.trim().toLowerCase()),
-        )
-      : sorted.slice(0, 4);
+    const groups = documentGroups(docs);
+    const visible = all
+      ? groups.filter((group) => (!activeBundle || group.id === activeBundle) &&
+          (group.name?.toLowerCase().includes(query.trim().toLowerCase()) ||
+           group.documents.some((doc) => doc.name.toLowerCase().includes(query.trim().toLowerCase()))))
+      : groups.slice(0, 4);
+    const rows = visible.flatMap((group) => [
+      ...(group.name ? [{ header: true, id: group.id, name: group.name, count: group.documents.length }] : []),
+      ...group.documents,
+    ]);
     return (
       <div className="card documents-card">
         {rows.length ? (
           <div className="rows">
-            {rows.map((d) => (
+            {rows.map((d) => d.header ? (
+              <div className="bundle-heading" key={`bundle-${d.id}`}>
+                <FolderClosed size={20} />
+                <div><strong>{d.name}</strong><small>{d.count} documents · Downloaded as separate PDFs</small></div>
+              </div>
+            ) : (
               <div className="doc-row" key={d.id}>
                 <span className="doc-icon">
                   <FileText size={22} />
@@ -275,7 +325,7 @@ function App({ accountWorkspace, guest, authenticate, signOut }) {
                 <button
                   disabled={busy}
                   className="doc-name"
-                  onClick={() => open(d.signed || d.file, d)}
+                  onClick={() => { setActiveBundle(d.bundleId || null); open(d.signed || d.file, d); }}
                 >
                   <strong>{d.name}</strong>
                   <small>
@@ -303,7 +353,7 @@ function App({ accountWorkspace, guest, authenticate, signOut }) {
                     className="icon-button"
                     disabled={busy}
                     aria-label={"Open " + d.name}
-                    onClick={() => open(d.signed || d.file, d)}
+                    onClick={() => { setActiveBundle(d.bundleId || null); open(d.signed || d.file, d); }}
                   >
                     <ChevronRight size={17} />
                   </button>
@@ -352,14 +402,14 @@ function App({ accountWorkspace, guest, authenticate, signOut }) {
               <nav aria-label="Main navigation">
                 <button
                   className={tab === "workspace" ? "nav-active" : ""}
-                  onClick={() => setTab("workspace")}
+                  onClick={() => { setActiveBundle(null); setTab("workspace"); }}
                 >
                   <LayoutGrid size={15} />
                   Workspace
                 </button>
                 <button
                   className={tab === "documents" ? "nav-active" : ""}
-                  onClick={() => setTab("documents")}
+                  onClick={() => { setActiveBundle(null); setTab("documents"); }}
                 >
                   <FolderClosed size={16} />
                   Documents
@@ -394,8 +444,9 @@ function App({ accountWorkspace, guest, authenticate, signOut }) {
         ref={fileInput}
         type="file"
         accept="application/pdf,.pdf"
+        multiple
         hidden
-        onChange={(e) => open(e.target.files[0])}
+        onChange={(e) => upload(e.target.files)}
       />
       {editor ? (
         <Editor
@@ -442,9 +493,9 @@ function App({ accountWorkspace, guest, authenticate, signOut }) {
                     <span className="tile violet">
                       <FileUp />
                     </span>
-                    <h2>Upload a PDF</h2>
+                    <h2>Upload PDFs</h2>
                   </div>
-                  <p className="card-desc">Add a document to start signing.</p>
+                  <p className="card-desc">Choose one PDF or several to create a bundle.</p>
                   <div
                     className={"dropzone " + (drag ? "dragging" : "")}
                     onDragOver={(e) => e.preventDefault()}
@@ -460,7 +511,7 @@ function App({ accountWorkspace, guest, authenticate, signOut }) {
                       e.preventDefault();
                       dragDepth.current = 0;
                       setDrag(false);
-                      open(e.dataTransfer.files[0]);
+                      upload(e.dataTransfer.files);
                     }}
                   >
                     <div className="upload-graphic" aria-hidden="true">
@@ -474,12 +525,12 @@ function App({ accountWorkspace, guest, authenticate, signOut }) {
                     </div>
                     <strong>
                       {busy
-                        ? "Opening your PDF…"
+                        ? "Opening your PDFs…"
                         : drag
-                          ? "Release to open your PDF"
-                          : "Drop your PDF here"}
+                          ? "Release to open your PDFs"
+                          : "Drop your PDFs here"}
                     </strong>
-                    <small>or select a file from your device</small>
+                    <small>or select files from your device</small>
                     <button
                       className="primary"
                       disabled={busy}
@@ -490,7 +541,7 @@ function App({ accountWorkspace, guest, authenticate, signOut }) {
                       ) : (
                         <Upload size={16} />
                       )}
-                      Choose PDF
+                      Choose PDFs
                     </button>
                   </div>
                   <div className="upload-foot">
@@ -553,7 +604,7 @@ function App({ accountWorkspace, guest, authenticate, signOut }) {
                   </h2>
                   <button
                     className="text-button"
-                    onClick={() => setTab("documents")}
+                    onClick={() => { setActiveBundle(null); setTab("documents"); }}
                   >
                     View all <ArrowRight size={14} />
                   </button>
@@ -565,7 +616,8 @@ function App({ accountWorkspace, guest, authenticate, signOut }) {
             <section className="library">
               <div className="library-head">
                 <div>
-                  <h1>Documents</h1>
+                  <h1>{activeBundle ? "Document bundle" : "Documents"}</h1>
+                  {activeBundle && <button className="text-button" onClick={() => setActiveBundle(null)}>View all documents</button>}
                   <p>{accountWorkspace ? "Your PDFs in this account." : "Your PDFs on this device."}</p>
                 </div>
                 <button
@@ -574,7 +626,7 @@ function App({ accountWorkspace, guest, authenticate, signOut }) {
                   onClick={() => fileInput.current.click()}
                 >
                   <Upload size={16} />
-                  Upload PDF
+                  Upload PDFs
                 </button>
               </div>
               <label className="search">
@@ -628,7 +680,7 @@ function App({ accountWorkspace, guest, authenticate, signOut }) {
         <Dialog title="Signing with Inkdesk" close={() => setHelp(false)}>
           <ol className="guide">
             <li>
-              Choose a PDF from your device or drop it onto the workspace.
+              Choose one or more PDFs from your device or drop them onto the workspace. Multiple PDFs form a bundle; open and download each document separately.
             </li>
             <li>
               Draw or type your signature. Click where it belongs on the page,

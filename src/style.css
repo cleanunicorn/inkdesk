@@ -1477,3 +1477,15 @@ dialog::backdrop {
 .certificate-fields { margin-top: 14px; }
 .certificate-fields input { width: 100%; min-width: 0; font-size: 12px; margin-bottom: 12px; }
 .certificate-fields input[type="password"] { border: 1px solid var(--line); border-radius: 7px; padding: 9px; font-size: 16px; }
+
+.bundle-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 22px;
+  background: #f5f3fa;
+  border-bottom: 1px solid #e8e5ee;
+}
+.bundle-heading div { min-width: 0; }
+.bundle-heading strong { display: block; overflow-wrap: anywhere; }
+.bundle-heading small { display: block; margin-top: 4px; color: #6e687b; }

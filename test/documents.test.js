@@ -65,3 +65,19 @@ test("an in-memory upload can enter the library after storage recovers", async (
   assert.equal(doc.temporary, undefined);
   assert.equal(doc.inkColor, "#242526");
 });
+
+test("bundle membership survives storage and signed revisions without merging files", async () => {
+  const bundleId = crypto.randomUUID();
+  const originals = [0, 1].map((bundleOrder) => ({
+    id: crypto.randomUUID(), name: `part-${bundleOrder}.pdf`, pages: bundleOrder + 1,
+    file: new Blob([`original ${bundleOrder}`]), bundleId, bundleName: "Agreement", bundleOrder,
+  }));
+  for (const doc of originals) await firstTab.saveDocument(doc);
+  for (const doc of originals) await firstTab.saveSignedDocument(doc, new Blob([`signed ${doc.bundleOrder}`]));
+  const stored = (await secondTab.getDocuments()).filter((doc) => doc.bundleId === bundleId)
+    .sort((a, b) => a.bundleOrder - b.bundleOrder);
+  assert.equal(stored.length, 2);
+  assert.deepEqual(stored.map((doc) => doc.pages), [1, 2]);
+  assert.deepEqual(await Promise.all(stored.map((doc) => doc.file.text())), ["original 0", "original 1"]);
+  assert.deepEqual(await Promise.all(stored.map((doc) => doc.signed.text())), ["signed 0", "signed 1"]);
+});

@@ -113,3 +113,12 @@ and CMS, and `@cantoo/pdf-lib` for incremental PDF updates. The automated signin
 tests require **OpenSSL** and independently verify signatures, detect tampering,
 and verify consecutive signed revisions. Production browser testing uses a
 throwaway test certificate, never a personal signing key.
+
+## Document bundles
+
+Select or drop multiple PDFs to create a bundle. Each document keeps its own
+pages, draft, and signed output. Open a document from the bundle, sign it, and
+download its PDF; returning to the bundle lets you continue with the next one.
+Downloads remain separate PDFs and are never merged. Bundles persist in the
+local workspace and sync with claimed accounts. If an upload contains an invalid
+file, the other valid PDFs are still added and the failed filename is reported.
