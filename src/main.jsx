@@ -141,7 +141,7 @@ function App() {
     setDocs((all) => [doc, ...all.filter((d) => d.id !== doc.id)]);
   }
   function closeEditor() {
-    if (editor) editor.pdf.destroy();
+    if (editor) editor.pdf.loadingTask.destroy();
     setEditor(null);
     window.scrollTo(0, 0);
   }
@@ -183,7 +183,7 @@ function App() {
       setEditor({ doc, pdf, source: file });
       window.scrollTo(0, 0);
     } catch (e) {
-      pdf?.destroy();
+      pdf?.loadingTask.destroy();
       setError(
         /password|encrypt/i.test(e.message)
           ? "This PDF is password-protected. Upload an unlocked copy."
