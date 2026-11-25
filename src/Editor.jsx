@@ -15,6 +15,7 @@ import {
 import { downloadPDF } from "./download";
 import { Dialog, InkColors } from "./Signature";
 import { readDraftState, writeDraftState, clearDraft } from "./drafts";
+import { guestStorage, writeGuestStorage } from "./account";
 import TextMark from "./TextMark";
 import InkImage from "./InkImage";
 import DigitalSigningOptions from "./DigitalSigningOptions";
@@ -31,10 +32,17 @@ export default function Editor({
   editSignature,
   onClose,
   onExport,
+  accountWorkspace,
+  guest,
 }) {
+  const draftHandle = useRef({});
+  const draftQueue = useRef(Promise.resolve());
   const [draft] = useState(() => {
     try {
-      return { ...readDraftState(doc), error: "" };
+      const state = accountWorkspace
+        ? accountWorkspace.readDraftState(doc, draftHandle.current)
+        : readDraftState(doc, guestStorage(guest));
+      return { ...state, error: "" };
     } catch {
       return { marks: [], color: INKS.Blue, error: "Your saved draft could not be read. New edits may replace it. Download your signed PDF before leaving." };
     }
@@ -60,26 +68,44 @@ export default function Editor({
     drag = useRef(null),
     latest = useRef(Math.max(0, ...draft.marks.map((mark) => mark.id)));
   const marksRef = useRef(draft.marks);
-  // Persist synchronously at each edit, rather than waiting for an unload event
-  // (mobile browsers may terminate the app without delivering one).
-  function setMarks(change) {
+  function persistDraft(state) {
+    const pending = draftQueue.current.catch(() => {}).then(() => accountWorkspace
+      ? accountWorkspace.writeDraftState(doc, state, draftHandle.current)
+      : writeGuestStorage(guest, (storage) => {
+        if (state) writeDraftState(doc, state, storage);
+        else clearDraft(doc, storage);
+      }));
+    draftQueue.current = pending;
+    pending.then(() => setDraftError(""), () => {
+      setDraftError("Your draft could not be saved. Download your signed PDF before leaving or reloading.");
+    });
+    return pending;
+  }
+  function setMarks(change, persist = true) {
     const next = typeof change === "function" ? change(marksRef.current) : change;
     marksRef.current = next;
-    persistDraft(next, inkRef.current);
     updateMarks(next);
+    if (persist) persistDraft({ marks: next, color: inkRef.current });
   }
-  function persistDraft(next, color) {
+  function finishDrag(event) {
+    if (!drag.current || (event && drag.current.pointerId !== event.pointerId)) return;
+    const { moved } = drag.current;
+    drag.current = null;
+    if (moved) persistDraft({ marks: marksRef.current, color: inkRef.current });
+  }
+  async function keepDraft() {
+    finishDrag();
     try {
-      writeDraftState(doc, { marks: next, color });
-      setDraftError("");
+      await draftQueue.current;
+      onClose();
     } catch {
-      setDraftError("Your draft could not be saved. Download your signed PDF before leaving or reloading.");
+      // The editor shows the save failure and retains the placements.
     }
   }
   function changeInk(color) {
     inkRef.current = color;
     setInk(color);
-    persistDraft(marksRef.current, color);
+    persistDraft({ marks: marksRef.current, color });
   }
   useEffect(() => {
     if (!marks.length) return;
@@ -90,9 +116,10 @@ export default function Editor({
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [marks.length]);
-  function discard() {
+  async function discard() {
     try {
-      clearDraft(doc);
+      drag.current = null;
+      await persistDraft(null);
       onClose();
     } catch {
       setLeave(false);
@@ -193,8 +220,9 @@ export default function Editor({
         setDigital({ enabled: false, file: null, password: "" });
       }
       downloadPDF(result, doc.name);
-      await onExport(result, { inkColor: ink });
-      clearDraft(doc);
+      await draftQueue.current.catch(() => {});
+      await onExport(result, { inkColor: ink }, draftHandle.current);
+      if (!accountWorkspace) await writeGuestStorage(guest, (storage) => clearDraft(doc, storage));
       onClose();
     } catch (e) {
       setError(
@@ -209,7 +237,7 @@ export default function Editor({
       <button
         disabled={busy || adding}
         className="text-button back"
-        onClick={() => (marks.length ? setLeave(true) : onClose())}
+        onClick={() => (marks.length ? setLeave(true) : keepDraft())}
       >
         <ArrowLeft size={16} /> Workspace
       </button>
@@ -437,6 +465,7 @@ export default function Editor({
                       onPointerMove={(e) => {
                         const d = drag.current;
                         if (d?.id !== m.id || d.pointerId !== e.pointerId) return;
+                        d.moved = true;
                         const [x, y] = pos(e);
                         setMarks((prev) =>
                           prev.map((item) =>
@@ -445,11 +474,12 @@ export default function Editor({
                                 : bounded(item, x - d.dx, y - d.dy, item.w)
                               : item,
                           ),
+                          false,
                         );
                       }}
-                      onPointerUp={(e) => { if (drag.current?.pointerId === e.pointerId) drag.current = null; }}
-                      onPointerCancel={(e) => { if (drag.current?.pointerId === e.pointerId) drag.current = null; }}
-                      onLostPointerCapture={() => (drag.current = null)}
+                      onPointerUp={finishDrag}
+                      onPointerCancel={finishDrag}
+                      onLostPointerCapture={finishDrag}
                     >
                       <button className="mark-move" aria-label={m.kind === "text" ? "Move text" : "Move signature"}>
                         <InkImage image={m.image} color={ink} />
@@ -485,7 +515,7 @@ export default function Editor({
             <button className="secondary" onClick={discard}>
               Discard placements
             </button>
-            <button className="secondary" disabled={!!draftError || doc.temporary} onClick={onClose}>
+            <button className="secondary" disabled={!!draftError || doc.temporary} onClick={keepDraft}>
               Keep draft
             </button>
             <button className="primary" onClick={() => setLeave(false)}>

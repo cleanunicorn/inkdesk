@@ -20,6 +20,8 @@ import {
   LoaderCircle,
   ChevronRight,
   CircleHelp,
+  UserRound,
+  Trash2,
 } from "lucide-react";
 import "@fontsource-variable/dm-sans/wght.css";
 import "@fontsource/allura/latin-400.css";
@@ -29,6 +31,8 @@ import { downloadPDF } from "./download";
 import { pdfOpenErrorMessage } from "./pdf-errors";
 import { createDocumentId } from "./document-id";
 import Editor from "./Editor";
+import AccountDialog, { AccountRoot, useAccountSync } from "./Account";
+import { guestStorage, signatureKey, writeGuestStorage } from "./account";
 import InstallApp from "./InstallApp";
 import SignatureModal, { Dialog } from "./Signature";
 
@@ -75,7 +79,7 @@ function Brand() {
     </span>
   );
 }
-function App() {
+function App({ accountWorkspace, guest, authenticate, signOut }) {
   const [tab, setTab] = useState("workspace"),
     [docs, setDocs] = useState([]),
     [loaded, setLoaded] = useState(false),
@@ -86,10 +90,15 @@ function App() {
     [toast, setToast] = useState(""),
     [sigModal, setSigModal] = useState(false),
     [help, setHelp] = useState(false),
+    [accountOpen, setAccountOpen] = useState(false),
+    [removeDoc, setRemoveDoc] = useState(null),
+    [removing, setRemoving] = useState(false),
+    [removeError, setRemoveError] = useState(""),
     [query, setQuery] = useState("");
   const [signature, setSignature] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem("inkdesk-signature"));
+      return accountWorkspace ? accountWorkspace.getSignature() :
+        JSON.parse(guestStorage(guest).getItem(signatureKey));
     } catch {
       return null;
     }
@@ -99,21 +108,25 @@ function App() {
     afterSig = useRef(null),
     lock = useRef(false),
     dragDepth = useRef(0);
+  const syncStatus = useAccountSync(accountWorkspace, () => {
+    const stored = accountWorkspace.getDocuments();
+    const ids = new Set(stored.map((doc) => doc.id));
+    setDocs((local) => [...stored, ...local.filter((doc) => doc.temporary && !ids.has(doc.id))]);
+    if (!temporarySignature) setSignature(accountWorkspace.getSignature());
+    setLoaded(true);
+  });
   useEffect(() => {
-    getDocuments()
+    (accountWorkspace ? Promise.resolve(accountWorkspace.getDocuments()) : getDocuments(guest))
       .then((stored) =>
         setDocs((local) => [
           ...local,
           ...stored.filter((doc) => !local.some((item) => item.id === doc.id)),
         ]),
       )
-      .catch(() =>
-        setError(
-          "Browser storage is unavailable. Allow site storage to keep documents here.",
-        ),
-      )
+      .catch((failure) => setError(failure.code === "storage-blocked" ? failure.message :
+        "Browser storage is unavailable. Allow site storage to keep documents here."))
       .finally(() => setLoaded(true));
-  }, []);
+  }, [accountWorkspace, guest]);
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(""), 4200);
@@ -123,9 +136,10 @@ function App() {
     afterSig.current = callback || null;
     setSigModal(true);
   }
-  function saveSig(sig) {
+  async function saveSig(sig) {
     try {
-      localStorage.setItem("inkdesk-signature", JSON.stringify(sig));
+      if (accountWorkspace) await accountWorkspace.saveSignature(sig);
+      else await writeGuestStorage(guest, (storage) => storage.setItem(signatureKey, JSON.stringify(sig)));
       setTemporarySignature(false);
       setToast("Signature saved");
     } catch {
@@ -173,7 +187,8 @@ function App() {
       };
       if (!existing) {
         try {
-          await saveDocument(doc);
+          if (accountWorkspace) await accountWorkspace.saveDocument(doc);
+          else await saveDocument(doc, guest);
         } catch {
           doc.temporary = true;
           setError(
@@ -201,17 +216,17 @@ function App() {
       setError("The sample could not be opened. Please try again.");
     }
   }
-  async function exportDoc(signed, settings = {}) {
+  async function exportDoc(signed, settings, draftHandle) {
+    const base = { ...editor.doc, inkColor: settings.inkColor };
     try {
-      const { doc, concurrentCopy } = await saveSignedDocument(
-        { ...editor.doc, inkColor: settings.inkColor },
-        signed,
-      );
+      const { doc, concurrentCopy } = await (accountWorkspace
+        ? accountWorkspace.saveSignedDocument(base, signed, draftHandle)
+        : saveSignedDocument(base, signed, guest));
       if (concurrentCopy) updateDoc(concurrentCopy);
       updateDoc(doc);
       setToast(
         concurrentCopy
-          ? "Another tab saved changes. Both copies are in Documents."
+          ? "The document changed while you were editing. Both copies are in Documents."
           : "Signed PDF saved",
       );
     } catch {
@@ -225,6 +240,20 @@ function App() {
       setError(
         "Your download is ready. Browser storage is unavailable, so this signed copy is available here until you reload.",
       );
+    }
+  }
+  async function removeDocument() {
+    setRemoving(true);
+    setRemoveError("");
+    try {
+      await accountWorkspace.removeDocument(removeDoc);
+      setDocs((all) => all.filter((doc) => doc.id !== removeDoc.id));
+      setToast("PDF removed");
+      setRemoveDoc(null);
+    } catch {
+      setRemoveError("The PDF could not be removed. Try again.");
+    } finally {
+      setRemoving(false);
     }
   }
   const sorted = [...docs].sort((a, b) => b.updated - a.updated);
@@ -277,6 +306,12 @@ function App() {
                     onClick={() => open(d.signed || d.file, d)}
                   >
                     <ChevronRight size={17} />
+                  </button>
+                )}
+                {all && accountWorkspace && (
+                  <button className="icon-button" aria-label={`Remove ${d.name}`}
+                    onClick={() => { setRemoveError(""); setRemoveDoc(d); }}>
+                    <Trash2 size={16} />
                   </button>
                 )}
               </div>
@@ -337,8 +372,14 @@ function App() {
             <InstallApp />
             <span className="privacy">
               <i />
-              Local workspace
+              {accountWorkspace ? syncStatus : "Local workspace"}
             </span>
+            {!editor && (
+              <button className="account-button" disabled={busy || !loaded} onClick={() => setAccountOpen(true)}>
+                <UserRound size={15} />
+                {accountWorkspace ? "Account" : "Claim workspace"}
+              </button>
+            )}
             <button
               className="help-button"
               aria-label="How to use Inkdesk"
@@ -363,6 +404,8 @@ function App() {
           editSignature={editSignature}
           onClose={closeEditor}
           onExport={exportDoc}
+          accountWorkspace={accountWorkspace}
+          guest={guest}
         />
       ) : (
         <main className="workspace">
@@ -453,7 +496,7 @@ function App() {
                   <div className="upload-foot">
                     <span>
                       <LockKeyhole size={13} />
-                      Your files stay on your device
+                      {accountWorkspace ? "Syncs to your account" : "Your files stay on your device"}
                     </span>
                     <button
                       disabled={busy}
@@ -523,7 +566,7 @@ function App() {
               <div className="library-head">
                 <div>
                   <h1>Documents</h1>
-                  <p>Your PDFs on this device.</p>
+                  <p>{accountWorkspace ? "Your PDFs in this account." : "Your PDFs on this device."}</p>
                 </div>
                 <button
                   className="primary"
@@ -567,6 +610,20 @@ function App() {
           existing={signature}
         />
       )}
+      {removeDoc && (
+        <Dialog title="Remove this PDF?" close={() => { if (!removing) setRemoveDoc(null); }}>
+          <p className="modal-copy"><strong>{removeDoc.name}</strong> and its saved drafts will be removed from your account.</p>
+          {removeError && <p className="account-error" role="alert">{removeError}</p>}
+          <div className="modal-actions">
+            <button className="secondary" disabled={removing} onClick={() => setRemoveDoc(null)}>Cancel</button>
+            <button className="primary" disabled={removing} onClick={removeDocument}>Remove PDF</button>
+          </div>
+        </Dialog>
+      )}
+      {accountOpen && (
+        <AccountDialog workspace={accountWorkspace} status={syncStatus} authenticate={authenticate}
+          signOut={signOut} close={() => setAccountOpen(false)} />
+      )}
       {help && (
         <Dialog title="Signing with Inkdesk" close={() => setHelp(false)}>
           <ol className="guide">
@@ -578,8 +635,7 @@ function App() {
               then drag or resize it.
             </li>
             <li>
-              Download the signed PDF. Your signature and documents are saved in
-              this browser.
+              Download the signed PDF. Claim your workspace to access your documents and signature on other devices.
             </li>
           </ol>
           <button className="primary full" onClick={() => setHelp(false)}>
@@ -596,7 +652,7 @@ function App() {
     </>
   );
 }
-createRoot(document.getElementById("root")).render(<App />);
+createRoot(document.getElementById("root")).render(<AccountRoot Workspace={App} />);
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js").catch((error) => {

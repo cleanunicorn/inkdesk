@@ -114,7 +114,7 @@ export default function SignatureModal({ close, onSave, existing }) {
         next = [...samples, result];
       }
       if (!next.length) throw new Error("Add a signature first.");
-      onSave({ image: next[0].image, ratio: next[0].ratio, samples: next });
+      await onSave({ image: next[0].image, ratio: next[0].ratio, samples: next });
     } catch (e) {
       setError(e.message);
     } finally {

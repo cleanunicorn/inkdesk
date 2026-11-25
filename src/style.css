@@ -1395,6 +1395,59 @@ dialog::backdrop {
   }
 }
 
+.account-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border, #e5e0ee);
+  border-radius: 9px;
+  background: white;
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.account-button:disabled {
+  opacity: .55;
+  cursor: default;
+}
+.account-form {
+  display: grid;
+  gap: 14px;
+}
+.account-form p {
+  margin: 0;
+}
+.account-form label {
+  display: grid;
+  gap: 5px;
+  font-weight: 650;
+}
+.account-form input {
+  width: 100%;
+  border: 1px solid var(--border, #e5e0ee);
+  border-radius: 9px;
+  padding: 10px 12px;
+  font: inherit;
+  font-weight: 400;
+}
+.account-form .text-button {
+  justify-self: center;
+}
+.account-error {
+  color: #9d1f34;
+}
+.account-loading {
+  padding-block: 2rem;
+}
+@media (max-width: 360px) {
+  .account-button svg {
+    display: none;
+  }
+}
+
 /* The image supplies only alpha; the document owns its ink color. */
 .ink-image {
   display: inline-block;

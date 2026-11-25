@@ -4,9 +4,16 @@ import { INKS } from "./ink.js";
 const key = (doc) => `inkdesk-draft:${doc.id}:${doc.revision ?? 0}`;
 
 export function readDraftState(doc, storage = localStorage) {
+  return readStoredDraftState(doc, storage) ?? validateDraftState(doc, null);
+}
+
+export function readStoredDraftState(doc, storage = localStorage) {
   const raw = storage.getItem(key(doc));
-  if (!raw) return { marks: [], color: Object.values(INKS).includes(doc.inkColor) ? doc.inkColor : INKS.Blue };
-  const saved = JSON.parse(raw);
+  return raw ? validateDraftState(doc, JSON.parse(raw)) : null;
+}
+
+export function validateDraftState(doc, saved) {
+  if (saved === null) return { marks: [], color: Object.values(INKS).includes(doc.inkColor) ? doc.inkColor : INKS.Blue };
   const marks = Array.isArray(saved) ? saved : saved?.marks;
   if (!Array.isArray(marks) || !marks.every((mark) =>
     mark && Number.isInteger(mark.id) && mark.id > 0 &&
