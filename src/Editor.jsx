@@ -237,7 +237,7 @@ export default function Editor({
       <button
         disabled={busy || adding}
         className="text-button back"
-        onClick={() => (marks.length ? setLeave(true) : onClose())}
+        onClick={() => (marks.length ? setLeave(true) : keepDraft())}
       >
         <ArrowLeft size={16} /> Workspace
       </button>

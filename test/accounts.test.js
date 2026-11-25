@@ -178,10 +178,13 @@ test("the client syncs around a rejected PDF and can remove that PDF", async (t)
     },
     signature,
   });
+  const [pdf] = first.getDocuments().filter(({ id }) => id === "test-pdf");
+  await first.writeDraftState(pdf, { marks: [], color: blackInk });
   await assert.rejects(first.sync(), { status: 413 });
   await other.sync();
   assert.deepEqual(other.getDocuments().map(({ id }) => id), ["test-pdf"]);
   assert.deepEqual(other.getSignature(), signature.value);
+  assert.deepEqual(other.readDraftState(other.getDocuments()[0]), { marks: [], color: blackInk });
   await first.removeDocument({ id: "large" });
   await first.sync();
   const before = calls.length;
