@@ -2,9 +2,12 @@
 
 A local PDF signing workspace for desktop and mobile browsers.
 
-Run `npm install` and `npm run dev` for development. Run `npm test` for the
-storage and PDF signing tests. `npm run build` produces the app in `dist/`;
-`npm run preview -- --host 0.0.0.0` previews that production build.
+With Node.js, npm, and Make installed, run `make install` to install dependencies
+from the lockfile, then `make dev` to start the development server with hot reload.
+Run `make test` for all tests. `make build` produces the app in `dist/`;
+`make preview` previews that production build on all network interfaces.
+Run `make` or `make help` to list the available commands. The underlying npm
+scripts remain available directly.
 
 ## Mobile installation
 
