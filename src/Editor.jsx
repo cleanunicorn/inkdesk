@@ -239,7 +239,7 @@ export default function Editor({
         className="text-button back"
         onClick={() => (marks.length ? setLeave(true) : keepDraft())}
       >
-        <ArrowLeft size={16} /> Workspace
+        <ArrowLeft size={16} /> {doc.bundleId ? "Back to bundle" : "Workspace"}
       </button>
       <div className="editor-head">
         <div>
