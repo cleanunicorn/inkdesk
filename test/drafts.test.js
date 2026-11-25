@@ -41,3 +41,21 @@ test("storage failures and malformed drafts are reported instead of silently era
   assert.throws(() => clearDraft(doc, denied), /denied/);
   assert.throws(() => readDraft(doc, { getItem: () => JSON.stringify([{ ...marks[0], page: 3 }]) }), /invalid/i);
 });
+
+test("text-only drafts retain editable text, ink and lettering style", () => {
+  const store = storage();
+  const text = [{ ...marks[0], kind: "text", text: "25 November 2026\nBucharest", color: "#214b9b", handwritten: true }];
+  writeDraft(doc, text, store);
+  assert.deepEqual(readDraft(doc, store), text);
+});
+
+test("one document ink setting persists even before placing marks and legacy drafts migrate", async () => {
+  const { readDraftState, writeDraftState } = await import("../src/drafts.js");
+  const store = storage();
+  writeDraftState(doc, { marks: [], color: "#242526" }, store);
+  assert.deepEqual(readDraftState(doc, store), { marks: [], color: "#242526" });
+  writeDraftState(doc, { marks, color: "#214b9b" }, store);
+  assert.equal(readDraftState(doc, store).color, "#214b9b");
+  assert.equal(readDraftState({ ...doc, revision: 1, inkColor: "#242526" }, store).color, "#242526");
+  assert.deepEqual(readDraftState(doc, { getItem: () => JSON.stringify(marks) }).marks, marks);
+});

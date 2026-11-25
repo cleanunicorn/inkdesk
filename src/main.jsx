@@ -201,10 +201,10 @@ function App() {
       setError("The sample could not be opened. Please try again.");
     }
   }
-  async function exportDoc(signed) {
+  async function exportDoc(signed, settings = {}) {
     try {
       const { doc, concurrentCopy } = await saveSignedDocument(
-        editor.doc,
+        { ...editor.doc, inkColor: settings.inkColor },
         signed,
       );
       if (concurrentCopy) updateDoc(concurrentCopy);
@@ -217,6 +217,7 @@ function App() {
     } catch {
       updateDoc({
         ...editor.doc,
+        inkColor: settings.inkColor,
         signed,
         updated: Date.now(),
         temporary: true,
@@ -470,7 +471,7 @@ function App() {
                     </span>
                     <h2>Your signature</h2>
                   </div>
-                  <p className="card-desc">Save it once, use it on any PDF.</p>
+                  <p className="card-desc">Save your handwriting. Every placement gets a natural variation.</p>
                   <div className="sig-preview">
                     <div className="signature-line">
                       <span>×</span>
@@ -497,7 +498,7 @@ function App() {
                     onClick={() => editSignature()}
                   >
                     {signature ? <PenLine size={16} /> : <Plus size={17} />}{" "}
-                    {signature ? "Edit signature" : "Create signature"}
+                    {signature ? "Manage signatures" : "Create signature"}
                   </button>
                 </section>
               </div>
