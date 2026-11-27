@@ -2,6 +2,10 @@
 
 A PDF signing workspace for desktop and mobile browsers, with optional account sync.
 
+![Inkdesk workspace with upload area, saved signature, and recent documents](docs/screenshots/workspace.png)
+
+![Inkdesk document editor with a signature placed on a sample agreement](docs/screenshots/editor.png)
+
 With Node.js 24+, npm, and Make installed, run `make install` to install dependencies
 from the lockfile, then `make dev` to start the development server with hot reload.
 Run `make test` for all tests. `make build` produces the app in `dist/`;
