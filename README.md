@@ -122,3 +122,9 @@ download its PDF; returning to the bundle lets you continue with the next one.
 Downloads remain separate PDFs and are never merged. Bundles persist in the
 local workspace and sync with claimed accounts. If an upload contains an invalid
 file, the other valid PDFs are still added and the failed filename is reported.
+
+## License
+
+Copyright 2026 Daniel Luca
+
+Licensed under the [Apache License, Version 2.0](LICENSE).
